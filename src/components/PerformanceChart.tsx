@@ -321,7 +321,7 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
         distance: Math.sqrt(Math.pow(p.x - mx, 2) + Math.pow(p.y - my, 2))
       }))
       .filter(p => p.distance <= radius)
-      .sort((a, b) => a.distance - b.distance);
+      .sort((a, b) => b.perf - a.perf); // Sort by perf descending
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -525,56 +525,65 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
             />
 
             {/* Tooltip */}
-            {nearestPersons.length > 0 && (
-              <g>
-                {/* Tooltip background */}
-                <rect
-                  x={mousePos.x + 10}
-                  y={mousePos.y - 10}
-                  width={180}
-                  height={nearestPersons.length * 20 + 35}
-                  fill="white"
-                  stroke="#333"
-                  strokeWidth={1}
-                  rx={4}
-                  pointerEvents="none"
-                />
-                {/* Department name header */}
-                <text
-                  x={mousePos.x + 15}
-                  y={mousePos.y + 5}
-                  fontSize={12}
-                  fill="#333"
-                  fontWeight="bold"
-                  pointerEvents="none"
-                >
-                  {nearestPersons[0].department}
-                </text>
-                {/* Separator line */}
-                <line
-                  x1={mousePos.x + 15}
-                  y1={mousePos.y + 10}
-                  x2={mousePos.x + 175}
-                  y2={mousePos.y + 10}
-                  stroke="#ddd"
-                  strokeWidth={1}
-                  pointerEvents="none"
-                />
-                {/* Tooltip text */}
-                {nearestPersons.map((person, idx) => (
+            {nearestPersons.length > 0 && (() => {
+              const tooltipWidth = 180;
+              const tooltipHeight = nearestPersons.length * 20 + 35;
+              // Calculate tooltip position - flip to left if would go off right edge
+              const tooltipX = mousePos.x + tooltipWidth + 10 > chartWidth - padding.right
+                ? mousePos.x - tooltipWidth - 10
+                : mousePos.x + 10;
+              
+              return (
+                <g>
+                  {/* Tooltip background */}
+                  <rect
+                    x={tooltipX}
+                    y={mousePos.y - 10}
+                    width={tooltipWidth}
+                    height={tooltipHeight}
+                    fill="white"
+                    stroke="#333"
+                    strokeWidth={1}
+                    rx={4}
+                    pointerEvents="none"
+                  />
+                  {/* Department name header */}
                   <text
-                    key={person.id}
-                    x={mousePos.x + 15}
-                    y={mousePos.y + idx * 20 + 30}
-                    fontSize={11}
+                    x={tooltipX + 5}
+                    y={mousePos.y + 5}
+                    fontSize={12}
                     fill="#333"
+                    fontWeight="bold"
                     pointerEvents="none"
                   >
-                    {person.name}: {person.perf.toFixed(2)}
+                    {nearestPersons[0].department}
                   </text>
-                ))}
-              </g>
-            )}
+                  {/* Separator line */}
+                  <line
+                    x1={tooltipX + 5}
+                    y1={mousePos.y + 10}
+                    x2={tooltipX + tooltipWidth - 5}
+                    y2={mousePos.y + 10}
+                    stroke="#ddd"
+                    strokeWidth={1}
+                    pointerEvents="none"
+                  />
+                  {/* Tooltip text */}
+                  {nearestPersons.map((person, idx) => (
+                    <text
+                      key={person.id}
+                      x={tooltipX + 5}
+                      y={mousePos.y + idx * 20 + 30}
+                      fontSize={11}
+                      fill="#333"
+                      pointerEvents="none"
+                    >
+                      {person.name}: {person.perf.toFixed(2)}
+                    </text>
+                  ))}
+                </g>
+              );
+            })()}
           </g>
         )}
       </svg>
