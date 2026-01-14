@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { bitable, type IRecord } from '@lark-base-open/js-sdk';
 import { Spin, Alert } from 'antd';
 
@@ -17,12 +17,19 @@ interface DepartmentBand {
   people: PersonData[];
 }
 
+interface PersonPosition extends PersonData {
+  x: number;
+  y: number;
+}
+
 const PerformanceChart: React.FC = () => {
   const [data, setData] = useState<PersonData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(1000);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const svgRef = React.useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -185,9 +192,6 @@ const PerformanceChart: React.FC = () => {
     Array.from(deptMap.entries()).forEach(([deptName, people]) => {
       // Band width is strictly proportional to member count
       const bandWidth = (people.length / totalMembers) * availableWidth;
-      const color = getDeptColor(deptName);
-      
-      console.log('🎨 Department color:', deptName, '→', color);
       
       bands.push({
         name: deptName,
@@ -217,6 +221,43 @@ const PerformanceChart: React.FC = () => {
     return <Alert message="No data available" type="info" showIcon />;
   }
 
+  return <ChartRenderer 
+    data={data} 
+    containerWidth={containerWidth}
+    containerRef={containerRef}
+    svgRef={svgRef}
+    mousePos={mousePos}
+    setMousePos={setMousePos}
+    calculateLayout={calculateLayout}
+    calcColor={calcColor}
+    getDeptColor={getDeptColor}
+  />;
+};
+
+// Separate component for rendering to avoid hooks being called after conditional returns
+interface ChartRendererProps {
+  data: PersonData[];
+  containerWidth: number;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  svgRef: React.RefObject<SVGSVGElement | null>;
+  mousePos: { x: number; y: number } | null;
+  setMousePos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
+  calculateLayout: () => DepartmentBand[];
+  calcColor: (generalDom: number) => string;
+  getDeptColor: (deptName: string) => string;
+}
+
+const ChartRenderer: React.FC<ChartRendererProps> = ({
+  data,
+  containerWidth,
+  containerRef,
+  svgRef,
+  mousePos,
+  setMousePos,
+  calculateLayout,
+  calcColor,
+  getDeptColor,
+}) => {
   const bands = calculateLayout();
   const chartHeight = 900;
   const padding = { top: 40, right: 50, bottom: 80, left: 60 };
@@ -230,9 +271,57 @@ const PerformanceChart: React.FC = () => {
     return chartHeight - padding.bottom - ((perf - minPerf) / perfRange) * (chartHeight - padding.top - padding.bottom);
   };
 
+  // Track all person positions for hit detection (memoized to prevent recalculation on mouse move)
+  const personPositions: PersonPosition[] = useMemo(() => {
+    const positions: PersonPosition[] = [];
+    bands.forEach((band) => {
+      const bandX = padding.left + band.startX;
+      band.people.forEach((person) => {
+        const randomOffset = Math.random() * (band.width - 20) + 10;
+        const x = bandX + randomOffset;
+        const y = yScale(person.perf);
+        positions.push({ ...person, x, y });
+      });
+    });
+    return positions;
+  }, [data, containerWidth]); // Only recalculate when data or width changes
+
+  // Find nearest persons within 30px radius
+  const getNearestPersons = (mx: number, my: number): PersonPosition[] => {
+    const radius = 30;
+    return personPositions
+      .map(p => ({
+        ...p,
+        distance: Math.sqrt(Math.pow(p.x - mx, 2) + Math.pow(p.y - my, 2))
+      }))
+      .filter(p => p.distance <= radius)
+      .sort((a, b) => a.distance - b.distance);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setMousePos({ x, y });
+  };
+
+  const handleMouseLeave = () => {
+    setMousePos(null);
+  };
+
+  const nearestPersons = mousePos ? getNearestPersons(mousePos.x, mousePos.y) : [];
+
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
-      <svg width={chartWidth} height={chartHeight} style={{ border: '1px solid #e0e0e0' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'auto', userSelect: 'none' }}>
+      <svg 
+        ref={svgRef}
+        width={chartWidth} 
+        height={chartHeight} 
+        style={{ border: '1px solid #e0e0e0', cursor: 'crosshair' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
         {/* Y-axis */}
         <line
           x1={padding.left}
@@ -327,43 +416,94 @@ const PerformanceChart: React.FC = () => {
         })}
 
         {/* Data points (dots and labels) */}
-        {bands.map((band) => {
-          const bandX = padding.left + band.startX;
+        {personPositions.map((person) => {
+          const color = calcColor(person.generalDom);
 
-          return band.people.map((person) => {
-            // Random x position within the band
-            const randomOffset = Math.random() * (band.width - 20) + 10;
-            const x = bandX + randomOffset;
-            const y = yScale(person.perf);
-            const color = calcColor(person.generalDom);
+          return (
+            <g key={person.id}>
+              {/* Dot */}
+              <circle
+                cx={person.x}
+                cy={person.y}
+                r={5}
+                fill={color}
+                stroke="#000"
+                strokeWidth={1}
+              />
 
-            return (
-              <g key={person.id}>
-                {/* Dot */}
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={5}
-                  fill={color}
-                  stroke="#000"
-                  strokeWidth={1}
-                />
-
-                {/* Person name */}
-                <text
-                  x={x}
-                  y={y - 10}
-                  textAnchor="middle"
-                  fontSize={10}
-                  fill="#000"
-                  fontWeight="500"
-                >
-                  {person.name}
-                </text>
-              </g>
-            );
-          });
+              {/* Person name */}
+              <text
+                x={person.x}
+                y={person.y - 10}
+                textAnchor="middle"
+                fontSize={10}
+                fill="#000"
+                fontWeight="500"
+              >
+                {person.name}
+              </text>
+            </g>
+          );
         })}
+
+        {/* Crosshair and tooltip */}
+        {mousePos && (
+          <g>
+            {/* Vertical line */}
+            <line
+              x1={mousePos.x}
+              y1={padding.top}
+              x2={mousePos.x}
+              y2={chartHeight - padding.bottom}
+              stroke="#666"
+              strokeWidth={1}
+              strokeDasharray="4,4"
+              pointerEvents="none"
+            />
+            {/* Horizontal line */}
+            <line
+              x1={padding.left}
+              y1={mousePos.y}
+              x2={chartWidth - padding.right}
+              y2={mousePos.y}
+              stroke="#666"
+              strokeWidth={1}
+              strokeDasharray="4,4"
+              pointerEvents="none"
+            />
+
+            {/* Tooltip */}
+            {nearestPersons.length > 0 && (
+              <g>
+                {/* Tooltip background */}
+                <rect
+                  x={mousePos.x + 10}
+                  y={mousePos.y - 10}
+                  width={150}
+                  height={nearestPersons.length * 20 + 10}
+                  fill="white"
+                  stroke="#333"
+                  strokeWidth={1}
+                  rx={4}
+                  pointerEvents="none"
+                />
+                {/* Tooltip text */}
+                {nearestPersons.map((person, idx) => (
+                  <text
+                    key={person.id}
+                    x={mousePos.x + 15}
+                    y={mousePos.y + idx * 20 + 10}
+                    fontSize={11}
+                    fill="#333"
+                    pointerEvents="none"
+                  >
+                    {person.name}: {person.perf.toFixed(2)}
+                  </text>
+                ))}
+              </g>
+            )}
+          </g>
+        )}
       </svg>
     </div>
   );
