@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { bitable, type IRecord } from '@lark-base-open/js-sdk';
 import { Spin, Alert } from 'antd';
-import { interpolateColor } from '../utils/colorUtils';
 
 interface PersonData {
   id: string;
@@ -22,37 +21,28 @@ const PerformanceChart: React.FC = () => {
   const [data, setData] = useState<PersonData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = useState(1000);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        console.log('🔍 Fetching table "person-perf"...');
         const table = await bitable.base.getTableByName('person-perf');
 
         if (!table) {
           throw new Error('Table "person-perf" not found');
         }
-        console.log('✅ Table found:', table);
 
         const records = await table.getRecords({ pageSize: 5000 });
-        console.log('📊 Records fetched:', records.records.length, 'records');
         
         const fieldMetaList = await table.getFieldMetaList();
-        console.log('📋 Available fields:', fieldMetaList.map(f => f.name));
 
         // Find field IDs by name
         const perfField = fieldMetaList.find(f => f.name === 'perf');
         const deptField = fieldMetaList.find(f => f.name === 'Department');
         const personField = fieldMetaList.find(f => f.name === 'Person');
         const generalDomField = fieldMetaList.find(f => f.name === 'general-dom');
-
-        console.log('🔎 Field mapping:', {
-          perf: perfField?.name,
-          department: deptField?.name,
-          person: personField?.name,
-          generalDom: generalDomField?.name,
-        });
 
         if (!perfField || !deptField || !personField || !generalDomField) {
           throw new Error('Required fields not found');
@@ -65,14 +55,6 @@ const PerformanceChart: React.FC = () => {
             const deptValue = record.fields[deptField.id];
             const personValue = record.fields[personField.id];
             const generalDomValue = record.fields[generalDomField.id];
-
-            console.log('📝 Record values:', {
-              recordId: record.recordId,
-              perfValue,
-              deptValue,
-              personValue,
-              generalDomValue,
-            });
 
             // Extract department name (handle array or single value)
             let deptName = 'Unknown';
@@ -116,8 +98,6 @@ const PerformanceChart: React.FC = () => {
           })
           .filter(p => p.perf > 0); // Filter out invalid data
 
-        console.log('✨ Parsed data:', parsedData.length, 'valid records');
-        console.log('📊 Sample data:', parsedData.slice(0, 3));
         setData(parsedData);
       } catch (err) {
         console.error('❌ Failed to fetch data:', err);
@@ -129,6 +109,55 @@ const PerformanceChart: React.FC = () => {
 
     fetchData();
   }, []);
+
+  // Handle container resize for responsive width
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Calculate color based on general-dom value (0 to 1)
+  // Black (0) -> White (1)
+  const calcColor = (generalDom: number): string => {
+    const t = Math.max(0, Math.min(1, generalDom));
+    // Grayscale: 0 = black (0,0,0), 1 = white (255,255,255)
+    const value = Math.round(255 * t);
+    return `rgb(${value}, ${value}, ${value})`;
+  };
+
+  // Light colors for department backgrounds (HSL format for easy control)
+  const lightColors = [
+    'hsl(0, 70%, 85%)',   // Pink
+    'hsl(200, 70%, 85%)', // Blue
+    'hsl(120, 70%, 85%)', // Green
+    'hsl(30, 70%, 85%)',  // Orange
+    'hsl(270, 70%, 85%)', // Purple
+    'hsl(60, 70%, 85%)',  // Yellow
+    'hsl(180, 70%, 85%)', // Cyan
+    'hsl(300, 70%, 85%)', // Magenta
+    'hsl(90, 70%, 85%)',  // Lime
+    'hsl(20, 70%, 85%)',  // Peach
+  ];
+
+  // Hash function to map dept name to color index
+  const getDeptColor = (deptName: string): string => {
+    let hash = 0;
+    for (let i = 0; i < deptName.length; i++) {
+      const char = deptName.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    // Use unsigned right shift to ensure positive number
+    const index = (hash >>> 0) % lightColors.length;
+    return lightColors[index];
+  };
 
   // Calculate department bands and layout
   const calculateLayout = (): DepartmentBand[] => {
@@ -144,12 +173,22 @@ const PerformanceChart: React.FC = () => {
       deptMap.get(dept)!.push(person);
     });
 
-    // Create bands with fixed width
-    const bandWidth = 150;
+    // Calculate available width for bands
+    const padding = { left: 60, right: 50 };
+    const availableWidth = containerWidth - padding.left - padding.right;
+    
+    // Calculate band widths proportional to member count
+    const totalMembers = data.length;
     const bands: DepartmentBand[] = [];
     let currentX = 0;
 
     Array.from(deptMap.entries()).forEach(([deptName, people]) => {
+      // Band width is strictly proportional to member count
+      const bandWidth = (people.length / totalMembers) * availableWidth;
+      const color = getDeptColor(deptName);
+      
+      console.log('🎨 Department color:', deptName, '→', color);
+      
       bands.push({
         name: deptName,
         startX: currentX,
@@ -179,9 +218,9 @@ const PerformanceChart: React.FC = () => {
   }
 
   const bands = calculateLayout();
-  const chartWidth = bands.reduce((sum, b) => sum + b.width, 0) + 100;
-  const chartHeight = 600;
-  const padding = { top: 40, right: 50, bottom: 60, left: 60 };
+  const chartHeight = 900;
+  const padding = { top: 40, right: 50, bottom: 80, left: 60 };
+  const chartWidth = containerWidth;
 
   // Calculate Y-axis scale
   const maxPerf = Math.max(...data.map(p => p.perf));
@@ -192,7 +231,7 @@ const PerformanceChart: React.FC = () => {
   };
 
   return (
-    <div style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
       <svg width={chartWidth} height={chartHeight} style={{ border: '1px solid #e0e0e0' }}>
         {/* Y-axis */}
         <line
@@ -257,30 +296,29 @@ const PerformanceChart: React.FC = () => {
         {bands.map((band, idx) => {
           const x = padding.left + band.startX;
           const bandCenterX = x + band.width / 2;
+          const bandColor = getDeptColor(band.name);
 
           return (
             <g key={idx}>
-              {/* Band separator */}
-              {idx > 0 && (
-                <line
-                  x1={x}
-                  y1={padding.top}
-                  x2={x}
-                  y2={chartHeight - padding.bottom}
-                  stroke="#e0e0e0"
-                  strokeWidth={1}
-                  strokeDasharray="4,4"
-                />
-              )}
+              {/* Band background */}
+              <rect
+                x={x}
+                y={padding.top}
+                width={band.width}
+                height={chartHeight - padding.top - padding.bottom}
+                fill={bandColor}
+                opacity={0.3}
+              />
 
               {/* Department label */}
               <text
                 x={bandCenterX}
                 y={chartHeight - padding.bottom + 20}
-                textAnchor="middle"
+                textAnchor="start"
                 fontSize={12}
                 fill="#333"
                 fontWeight="bold"
+                transform={`rotate(45, ${bandCenterX}, ${chartHeight - padding.bottom + 20})`}
               >
                 {band.name}
               </text>
@@ -297,7 +335,7 @@ const PerformanceChart: React.FC = () => {
             const randomOffset = Math.random() * (band.width - 20) + 10;
             const x = bandX + randomOffset;
             const y = yScale(person.perf);
-            const color = interpolateColor(person.generalDom);
+            const color = calcColor(person.generalDom);
 
             return (
               <g key={person.id}>
@@ -307,7 +345,7 @@ const PerformanceChart: React.FC = () => {
                   cy={y}
                   r={5}
                   fill={color}
-                  stroke="#333"
+                  stroke="#000"
                   strokeWidth={1}
                 />
 
@@ -317,7 +355,7 @@ const PerformanceChart: React.FC = () => {
                   y={y - 10}
                   textAnchor="middle"
                   fontSize={10}
-                  fill={color}
+                  fill="#000"
                   fontWeight="500"
                 >
                   {person.name}
