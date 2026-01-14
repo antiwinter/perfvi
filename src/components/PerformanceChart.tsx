@@ -180,6 +180,16 @@ const PerformanceChart: React.FC = () => {
       deptMap.get(dept)!.push(person);
     });
 
+    // Calculate average general-dom for each department and sort
+    const deptWithAvg = Array.from(deptMap.entries()).map(([name, people]) => ({
+      name,
+      people,
+      avgGeneralDom: people.reduce((sum, p) => sum + p.generalDom, 0) / people.length,
+    }));
+    
+    // Sort departments by average general-dom (ascending)
+    deptWithAvg.sort((a, b) => a.avgGeneralDom - b.avgGeneralDom);
+
     // Calculate available width for bands
     const padding = { left: 60, right: 50 };
     const availableWidth = containerWidth - padding.left - padding.right;
@@ -189,12 +199,12 @@ const PerformanceChart: React.FC = () => {
     const bands: DepartmentBand[] = [];
     let currentX = 0;
 
-    Array.from(deptMap.entries()).forEach(([deptName, people]) => {
+    deptWithAvg.forEach(({ name, people }) => {
       // Band width is strictly proportional to member count
       const bandWidth = (people.length / totalMembers) * availableWidth;
       
       bands.push({
-        name: deptName,
+        name,
         startX: currentX,
         width: bandWidth,
         people,
@@ -286,10 +296,24 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
     return positions;
   }, [data, containerWidth]); // Only recalculate when data or width changes
 
-  // Find nearest persons within 30px radius
+  // Get current department based on mouse X position
+  const getCurrentDepartment = (mx: number): string | null => {
+    const adjustedX = mx - padding.left;
+    for (const band of bands) {
+      if (adjustedX >= band.startX && adjustedX < band.startX + band.width) {
+        return band.name;
+      }
+    }
+    return null;
+  };
+
+  // Find nearest persons within 30px radius in current department only in current department only
   const getNearestPersons = (mx: number, my: number): PersonPosition[] => {
     const radius = 30;
+    const currentDept = getCurrentDepartment(mx);
+    
     return personPositions
+      .filter(p => p.department === currentDept) // Only persons in current department
       .map(p => ({
         ...p,
         distance: Math.sqrt(Math.pow(p.x - mx, 2) + Math.pow(p.y - my, 2))
@@ -312,8 +336,34 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
 
   const nearestPersons = mousePos ? getNearestPersons(mousePos.x, mousePos.y) : [];
 
+  // Calculate average performance metrics (weighted average)
+  const sumGeneralDomPerf = data.reduce((sum, p) => sum + p.generalDom * p.perf, 0);
+  const sumGeneralDom = data.reduce((sum, p) => sum + p.generalDom, 0);
+  const avgGeneralPerf = sumGeneralDom > 0 ? sumGeneralDomPerf / sumGeneralDom : 0;
+  
+  const sumProjectDomPerf = data.reduce((sum, p) => sum + (1 - p.generalDom) * p.perf, 0);
+  const sumProjectDom = data.reduce((sum, p) => sum + (1 - p.generalDom), 0);
+  const avgProjectPerf = sumProjectDom > 0 ? sumProjectDomPerf / sumProjectDom : 0;
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'auto', userSelect: 'none' }}>
+      {/* Header with average performance metrics */}
+      <div style={{ 
+        padding: '12px 20px', 
+        background: '#f5f5f5', 
+        borderBottom: '1px solid #e0e0e0',
+        display: 'flex',
+        gap: '30px',
+        fontSize: '14px',
+        fontWeight: '500',
+      }}>
+        <div>
+          AVG General Perf: <span style={{ color: '#1890ff', fontWeight: 'bold' }}>{avgGeneralPerf.toFixed(2)}</span>
+        </div>
+        <div>
+          AVG Project Perf: <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{avgProjectPerf.toFixed(2)}</span>
+        </div>
+      </div>
       <svg 
         ref={svgRef}
         width={chartWidth} 
@@ -479,12 +529,33 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
                 <rect
                   x={mousePos.x + 10}
                   y={mousePos.y - 10}
-                  width={150}
-                  height={nearestPersons.length * 20 + 10}
+                  width={180}
+                  height={nearestPersons.length * 20 + 35}
                   fill="white"
                   stroke="#333"
                   strokeWidth={1}
                   rx={4}
+                  pointerEvents="none"
+                />
+                {/* Department name header */}
+                <text
+                  x={mousePos.x + 15}
+                  y={mousePos.y + 5}
+                  fontSize={12}
+                  fill="#333"
+                  fontWeight="bold"
+                  pointerEvents="none"
+                >
+                  {nearestPersons[0].department}
+                </text>
+                {/* Separator line */}
+                <line
+                  x1={mousePos.x + 15}
+                  y1={mousePos.y + 10}
+                  x2={mousePos.x + 175}
+                  y2={mousePos.y + 10}
+                  stroke="#ddd"
+                  strokeWidth={1}
                   pointerEvents="none"
                 />
                 {/* Tooltip text */}
@@ -492,7 +563,7 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
                   <text
                     key={person.id}
                     x={mousePos.x + 15}
-                    y={mousePos.y + idx * 20 + 10}
+                    y={mousePos.y + idx * 20 + 30}
                     fontSize={11}
                     fill="#333"
                     pointerEvents="none"
