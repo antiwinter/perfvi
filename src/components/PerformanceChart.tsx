@@ -66,7 +66,8 @@ const PerformanceChart: React.FC = () => {
             // Extract department name (handle array or single value)
             let deptName = 'Unknown';
             if (Array.isArray(deptValue) && deptValue.length > 0) {
-              deptName = deptValue[0].text || deptValue[0].name || 'Unknown';
+              const item = deptValue[0] as any;
+              deptName = item?.text || item?.name || 'Unknown';
             } else if (deptValue && typeof deptValue === 'object') {
               deptName = (deptValue as any).text || (deptValue as any).name || 'Unknown';
             }
@@ -74,7 +75,8 @@ const PerformanceChart: React.FC = () => {
             // Extract person name
             let personName = 'Unknown';
             if (Array.isArray(personValue) && personValue.length > 0) {
-              personName = personValue[0].name || personValue[0].text || 'Unknown';
+              const item = personValue[0] as any;
+              personName = item?.name || item?.text || 'Unknown';
             } else if (personValue && typeof personValue === 'object') {
               personName = (personValue as any).name || (personValue as any).text || 'Unknown';
             }
