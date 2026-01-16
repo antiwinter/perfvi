@@ -28,6 +28,7 @@ const PerformanceChart: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(1000);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const svgRef = React.useRef<SVGSVGElement>(null);
 
@@ -117,7 +118,12 @@ const PerformanceChart: React.FC = () => {
     };
 
     fetchData();
-  }, []);
+  }, [refreshKey]);
+
+  // Add a reload function
+  const handleReload = () => {
+    setRefreshKey(prev => prev + 1);
+  };
 
   // Handle container resize for responsive width
   useEffect(() => {
@@ -226,7 +232,30 @@ const PerformanceChart: React.FC = () => {
   }
 
   if (error) {
-    return <Alert message={error} type="error" showIcon />;
+    return (
+      <div style={{ padding: '20px' }}>
+        <Alert 
+          message={error} 
+          type="error" 
+          showIcon 
+          action={
+            <button 
+              onClick={handleReload}
+              style={{
+                padding: '4px 15px',
+                background: '#1890ff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              }}
+            >
+              Reload
+            </button>
+          }
+        />
+      </div>
+    );
   }
 
   if (data.length === 0) {
@@ -243,6 +272,7 @@ const PerformanceChart: React.FC = () => {
     calculateLayout={calculateLayout}
     calcColor={calcColor}
     getDeptColor={getDeptColor}
+    handleReload={handleReload}
   />;
 };
 
@@ -257,6 +287,7 @@ interface ChartRendererProps {
   calculateLayout: () => DepartmentBand[];
   calcColor: (generalDom: number) => string;
   getDeptColor: (deptName: string) => string;
+  handleReload: () => void;
 }
 
 const ChartRenderer: React.FC<ChartRendererProps> = ({
@@ -269,6 +300,7 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
   calculateLayout,
   calcColor,
   getDeptColor,
+  handleReload,
 }) => {
   const bands = calculateLayout();
   const chartHeight = 900;
@@ -356,6 +388,7 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
         borderBottom: '1px solid #e0e0e0',
         display: 'flex',
         gap: '30px',
+        alignItems: 'center',
         fontSize: '14px',
         fontWeight: '500',
       }}>
@@ -364,6 +397,23 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
         </div>
         <div>
           AVG Project Perf: <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{avgProjectPerf.toFixed(2)}</span>
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            onClick={handleReload}
+            style={{
+              padding: '6px 16px',
+              background: '#1890ff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+            }}
+          >
+            ↻ Reload
+          </button>
         </div>
       </div>
       <svg 
